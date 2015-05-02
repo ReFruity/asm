@@ -9,7 +9,8 @@ org 100h
 	debugMsgSptr db 'Stack pointer: $'
 	debugMsgRemRet db "'removeKey' procedure returns: $"
 	debugMsgStack db 'Key stack: $'
-	pushKeyDbg db 'Not duplicate key!$'
+	debugMsgPushKey db 'Not duplicate key!$'
+	debugMsgCalcFreq db 'Key frequency found!$'
 	head dw 0
 	tail dw 0
 	prev db 0
@@ -20,11 +21,15 @@ org 100h
 	buffer db 8 dup(?)
 	bufferSize dw 7
 	
-	maxKeys dw 10
-	keyStack db 10 dup(?)
+	maxKeys dw 0FFh
+	keyStack db 0FFh dup(?)
 	sptr dw 0
 	
 	nilKey db 0
+	
+	maxNotes dw 37
+	scanCodes db 10h, 3h, 11h, 4h, 12h, 13h, 6h, 14h, 7h, 15h, 8h, 16h, 17h, 0Ah, 18h, 0Bh, 19h, 1Ah, 0Dh, 1Bh, 1Eh, 2Ch, 1Fh, 2Dh, 2Eh, 21h, 2Fh, 22h, 30h, 31h, 24h, 32h, 25h, 33h, 26h, 34h, 35h
+	freqNums dw 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
 	
 @start:
 	lea 	dx, infoMsg
@@ -53,9 +58,9 @@ org 100h
 	mov 	al, byte ptr [bx]
 	
 	; ignore rapid repeating
-	; cmp		al, prev
-	; je 		@mainLoop
-	; mov		prev, al
+	cmp		al, prev
+	je 		@mainLoop
+	mov		prev, al
 	
 	; ignore additional scan-codes
 	; cli
@@ -63,10 +68,11 @@ org 100h
 	; mov 	head, dx
 	; sti
 	
-	; call 	printHex
-	; call	printNewLine
-	; cmp 	al, 81h 			; escape code
-	; je 		@restoreOldAndExit
+	call	printHex
+	call 	printNewLine
+	
+	cmp 	al, 81h 			; escape code
+	je 		@restoreOldAndExit
 	
 	cmp 	al, 1h
 	je		@onKeyUp
@@ -83,29 +89,28 @@ org 100h
 	call	removeKey
 	
 	; Debug info
-	push 	ax
-	lea 	dx, debugMsgRemRet
-	call 	printMsg
-	mov 	ax, bx
-	call	printHex
-	call 	printNewLine
-	pop 	ax
+	; push 	ax
+	; lea 	dx, debugMsgRemRet
+	; call 	printMsg
+	; mov 	ax, bx
+	; call	printHex
+	; call 	printNewLine
+	; pop 	ax
 	
 	test	bx, bx
 	jz		@next
 	call	stopSound
 	cmp		sptr, 0
 	jz 		@next
-	call	popKey
+	call	peekKey
 	call 	calcFreqNum
 	call	playSound
 	
 @next:	
 	; Debug info
-	; call 	printSptr
-	call 	printKeyStack
+	call 	printSptr
+	; call 	printKeyStack
 	call 	printNewLine
-	pop		ax
 
 	cmp 	al, 0B9h
 	jne 	@mainLoop
@@ -167,9 +172,9 @@ pushKey proc
 	cmp		al, dl
 	je 		@pkEnd
 	; debug msg
-	lea		dx, pushKeyDbg
-	call 	printMsg
-	call 	printNewLine
+	; lea		dx, debugMsgPushKey
+	; call 	printMsg
+	; call 	printNewLine
 @pkNext:
 	mov		byte ptr [bx], al
 	inc 	sptr
@@ -178,7 +183,7 @@ pushKey proc
 	ret
 pushKey endp
 
-; Arguments: al = scan-code
+; Arguments: al = key up scan-code
 ; Returns: bx = if top scan-code removed
 removeKey proc
 	push	ax dx
@@ -197,8 +202,6 @@ removeKey proc
 	jl	 	@rkLoop
 	jmp 	@rkRet0
 @rkFound:
-	; call 	printSptr
-	
 	push 	dx
 	mov		dl, nilKey
 	mov		byte ptr [bx], dl
@@ -206,15 +209,13 @@ removeKey proc
 	pop 	dx
 	inc 	bx
 	
-	; call 	printSptr
-	
 	; Debug info
-	mov		al, bl
-	call 	printHex
-	call 	printSpace
-	mov 	al, dl
-	call	printHex
-	call 	printNewLine
+	; mov		al, bl
+	; call 	printHex
+	; call 	printSpace
+	; mov 	al, dl
+	; call	printHex
+	; call 	printNewLine
 	
 	cmp 	bx, dx
 	jne		@rkRet0
@@ -249,6 +250,22 @@ popNilKeys proc
 	ret
 popNilKeys endp
 
+; Returns: al = scan-code at the top of the key stack
+peekKey proc
+	push	bx
+	cmp		sptr, 0
+	jz 		@peekKeyEnd
+	
+	lea 	bx, keyStack
+	add 	bx, sptr
+	dec 	bx
+	xor		ax, ax
+	mov 	al, byte ptr [bx]
+	@peekKeyEnd:
+	pop		bx
+	ret
+peekKey endp
+
 ; Returns: al = popped scan-code
 popKey proc
 	push	bx
@@ -266,20 +283,46 @@ popKey proc
 popKey endp
 
 ; Arguments: al = scan-code
-; Returns: bx = frequency number
+; Returns: bx = frequency number; 0 if not found
 calcFreqNum proc
-	push	ax
-	xor 	ah, ah
-	mov 	bl, 100
-	mul		bl
-	mov		bx, ax
-	pop		ax
+	push	ax cx
+	xor		cx, cx
+	lea		di, scanCodes
+@cfnLoop:
+	cmp 	byte ptr [di], al
+	je		@cfnRetFreq
+	inc 	cx
+	inc 	di
+	cmp		cx, maxNotes
+	jl	 	@cfnLoop
+	jmp		@cfnRet0
+@cfnRetFreq:
+	; Debug info
+	; lea		dx, debugMsgCalcFreq
+	; call	printMsg
+	; call 	printNewLine
+	
+	mov		ax, 2
+	mul		cl
+	mov 	cx, ax
+	
+	lea 	di, freqNums
+	add		di, cx
+	mov		bx, [di]
+	jmp 	@cfnEnd
+@cfnRet0:
+	xor 	bx, bx
+@cfnEnd:
+	pop		cx ax
 	ret
 calcFreqNum endp
 
 ; Arguments: bx = frequency number
 playSound proc
 	push 	ax bx cx
+	cmp 	bx, 0
+	je 		@psEnd
+	
 	mov 	ax, bx
 	; mov     ax, 4560        ; Frequency number (in decimal)
 							;  for middle C.
@@ -290,6 +333,7 @@ playSound proc
 							;  port 61h).
 	or      al, 00000011b   ; Set bits 1 and 0.
 	out     61h, al         ; Send new value.
+@psEnd:
 	pop 	cx bx ax
 	ret
 playSound endp
@@ -351,7 +395,7 @@ ackReception proc
 ackReception endp
 	
 printKeyStack proc
-	push	cx
+	push	ax bx cx dx
 	lea 	dx, debugMsgStack
 	call 	printMsg
 	mov 	cx, maxKeys
@@ -363,7 +407,7 @@ printKeyStack proc
 	call 	printSpace
 	loop 	@pksLoop
 	call 	printNewLine
-	pop		cx
+	pop		dx cx bx ax
 	ret
 printKeyStack endp
 
@@ -371,7 +415,6 @@ printSptr proc
 	push	ax dx
 	lea 	dx, debugMsgSptr
 	call	printMsg
-	push 	ax
 	mov		ax, sptr
 	call	printHex
 	call	printNewLine
