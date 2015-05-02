@@ -6,7 +6,7 @@ org 100h
 @entry:
 	jmp @start
 	infoMsg db 'This is simple electronic organ. Press ESC to exit.',13,10,'$'
-	debugMsg db 'Stack pointer: $'
+	debugMsgSptr db 'Stack pointer: $'
 	debugMsgRemRet db "'removeKey' procedure returns: $"
 	debugMsgStack db 'Key stack: $'
 	pushKeyDbg db 'Not duplicate key!$'
@@ -52,14 +52,21 @@ org 100h
 	add 	bx, offset buffer
 	mov 	al, byte ptr [bx]
 	
-	cmp		al, prev
-	je 		@mainLoop
-	mov		prev, al
+	; ignore rapid repeating
+	; cmp		al, prev
+	; je 		@mainLoop
+	; mov		prev, al
 	
-	call 	printHex
-	call	printNewLine
-	cmp 	al, 81h 			; escape code
-	je 		@restoreOldAndExit
+	; ignore additional scan-codes
+	; cli
+	; mov		dx, tail
+	; mov 	head, dx
+	; sti
+	
+	; call 	printHex
+	; call	printNewLine
+	; cmp 	al, 81h 			; escape code
+	; je 		@restoreOldAndExit
 	
 	cmp 	al, 1h
 	je		@onKeyUp
@@ -95,12 +102,7 @@ org 100h
 	
 @next:	
 	; Debug info
-	lea 	dx, debugMsg
-	call	printMsg
-	push 	ax
-	mov		ax, sptr
-	call	printHex
-	call	printNewLine
+	; call 	printSptr
 	call 	printKeyStack
 	call 	printNewLine
 	pop		ax
@@ -195,12 +197,17 @@ removeKey proc
 	jl	 	@rkLoop
 	jmp 	@rkRet0
 @rkFound:
+	; call 	printSptr
+	
 	push 	dx
 	mov		dl, nilKey
 	mov		byte ptr [bx], dl
 	call	popNilKeys
 	pop 	dx
 	inc 	bx
+	
+	; call 	printSptr
+	
 	; Debug info
 	mov		al, bl
 	call 	printHex
@@ -359,6 +366,18 @@ printKeyStack proc
 	pop		cx
 	ret
 printKeyStack endp
+
+printSptr proc
+	push	ax dx
+	lea 	dx, debugMsgSptr
+	call	printMsg
+	push 	ax
+	mov		ax, sptr
+	call	printHex
+	call	printNewLine
+	pop		dx ax
+	ret
+printSptr endp
 	
 ; Arguments: al = hex number to print
 printHex proc
