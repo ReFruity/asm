@@ -5,44 +5,49 @@ org 100h
 
 @entry:
 	jmp @start
-	infoMsg db 'This is simple electronic organ. Press ESC to exit.',13,10,'$'
-	debugMsgSptr db 'Stack pointer: $'
-	debugMsgRemRet db "'removeKey' procedure returns: $"
-	debugMsgStack db 'Key stack: $'
-	debugMsgPushKey db 'Not duplicate key!$'
-	debugMsgCalcFreq db 'Key frequency found!$'
-	head dw 0
-	tail dw 0
-	prev db 0
-	separator db '----',13,10,'$'
-	oldEs dw ?
-	oldBx dw ?
+	infoMsg 			db 'This is simple electronic organ. Press ESC to exit.',13,10,'$'
+	debugMsgSptr 		db 'Stack pointer: $'
+	debugMsgRemRet 		db "'removeKey' procedure returns: $"
+	debugMsgStack 		db 'Key stack: $'
+	debugMsgPushKey 	db 'Not duplicate key!$'
+	debugMsgCalcFreq 	db 'Key frequency found!$'
+	separator 			db '----',13,10,'$'
 	
-	buffer db 8 dup(?)
-	bufferSize dw 7
+	head 	dw 0
+	tail 	dw 0
+	prev 	db 0
 	
-	maxKeys dw 0FFh
-	keyStack db 0FFh dup(?)
-	sptr dw 0
+	oldEs08h dw	?
+	oldBx08h dw ?
+	oldEs09h dw ?
+	oldBx09h dw ?
+	
+	buffer 		db 8 dup(?)
+	bufferSize 	dw 7
+	
+	maxKeys 	dw 0FFh
+	keyStack 	db 0FFh dup(?)
+	sptr 		dw 0
 	
 	nilKey db 0
 	
-	maxNotes dw 37
-	scanCodes db 10h, 3h, 11h, 4h, 12h, 13h, 6h, 14h, 7h, 15h, 8h, 16h, 17h, 0Ah, 18h, 0Bh, 19h, 1Ah, 0Dh, 1Bh, 1Eh, 2Ch, 1Fh, 2Dh, 2Eh, 21h, 2Fh, 22h, 30h, 31h, 24h, 32h, 25h, 33h, 26h, 34h, 35h
-	freqNums dw 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
+	maxNotes 	dw 37
+	scanCodes 	db 10h, 3h, 11h, 4h, 12h, 13h, 6h, 14h, 7h, 15h, 8h, 16h, 17h, 0Ah, 18h, 0Bh, 19h, 1Ah, 0Dh, 1Bh, 1Eh, 2Ch, 1Fh, 2Dh, 2Eh, 21h, 2Fh, 22h, 30h, 31h, 24h, 32h, 25h, 33h, 26h, 34h, 35h
+	; 123.47
+	freqNums 	dw 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
+	
+	melodyNotesAmount 	dw 8
+	melodyFreqs 		dw 4560, 3619, 3224, 2280, 1809, 3224, 2280, 1809
+	melodyDelays 		dw 4, 4, 4, 4, 4, 4, 4, 4
+	delayCounter 		dw 0
+	noteCounter 		dw 0
 	
 @start:
 	lea 	dx, infoMsg
 	call 	printMsg
-	; save old vector
-	mov 	ax, 3509h
-	int 	21h
-	mov 	oldEs, es
-	mov 	oldBx, bx
-	; intall our vector
-	mov 	ah, 25h
-	mov 	dx, offset int09h
-	int 	21h
+	
+	call	saveOld09h
+	call	install09h
 	
 	call	prepareSpeaker
 	
@@ -74,15 +79,18 @@ org 100h
 	cmp 	al, 81h 			; escape code
 	je 		@restoreOldAndExit
 	
+	cmp 	al, 4Ch				
+	je		@playMelody			; play melody
+	
 	cmp 	al, 1h
-	je		@onKeyUp
+	je		@onKeyUp			; escape stops the sound
 	cmp 	al, 80h
 	ja		@onKeyUp
 	
 @onKeyPressed:	
 	call	pushKey
 	call 	calcFreqNum
-	call	playSound
+	call	playSoundOrIgnore
 	jmp 	@next
 	
 @onKeyUp:
@@ -104,7 +112,7 @@ org 100h
 	jz 		@next
 	call	peekKey
 	call 	calcFreqNum
-	call	playSound
+	call	playSoundOrIgnore
 	
 @next:	
 	; Debug info
@@ -119,9 +127,12 @@ org 100h
 	call 	printMsg
 	jmp 	@mainLoop
 	
+@playMelody:
+	
+	
 @restoreOldAndExit:
 	call	stopSound
-	call 	restoreOld
+	call 	restoreOld09h
 	ret
 	
 	
@@ -152,6 +163,36 @@ int09h proc
     pop		bx ax
     iret
 int09h endp
+
+int08h proc
+	push	ax cx ds si
+	push 	cs
+	pop 	ds	
+	
+	mov 	cx, noteCounter
+	cmp		cx, melodyNotesAmount
+	jge		@i08End
+	
+	lea 	si, melodyDelays
+	add		si, noteCounter
+	mov 	cx, [si]
+	cmp		cx, delayCounter
+	jl		@i08Inc
+	
+	mov 	delayCounter, 0
+	lea 	si, melodyFreqs
+	add		si, noteCounter
+	mov		ax, [si]
+	call 	playSound
+	
+@i08Inc:
+	inc		delayCounter
+@i08End:
+	mov 	al, 20h
+	out		20h, al
+	pop		si ds cx ax
+	iret
+int08h endp
 
 ; Doesn't push duplicate key and can't cause overflow
 ; Arguments: al = scan-code
@@ -317,12 +358,18 @@ calcFreqNum proc
 	ret
 calcFreqNum endp
 
+; Arguments: bx = frequency number, ignore if bx = 0
+playSoundOrIgnore proc
+	cmp 	bx, 0			
+	je 		@psoiEnd
+	call	playSound
+@psoiEnd:
+	ret
+playSoundOrIgnore endp
+
 ; Arguments: bx = frequency number
 playSound proc
 	push 	ax bx cx
-	cmp 	bx, 0
-	je 		@psEnd
-	
 	mov 	ax, bx
 	; mov     ax, 4560        ; Frequency number (in decimal)
 							;  for middle C.
@@ -374,15 +421,63 @@ incTail proc
 	ret
 incTail endp
 	
-restoreOld proc
-	mov 	ax, 2509h
-	mov 	dx, oldBx
-	push 	ds
-	mov 	ds, oldEs
+saveOld08h proc
+	push	ax es bx
+	mov 	ax, 3509h
 	int 	21h
-	pop 	ds
+	mov 	oldEs08h, es
+	mov 	oldBx08h, bx
+	pop		bx es ax
 	ret
-restoreOld endp
+saveOld08h endp
+	
+saveOld09h proc
+	push	ax es bx
+	mov 	ax, 3509h
+	int 	21h
+	mov 	oldEs09h, es
+	mov 	oldBx09h, bx
+	pop		bx es ax
+	ret
+saveOld09h endp
+
+install08h proc
+	push	ax dx
+	mov 	ah, 25h
+	mov 	dx, offset int08h
+	int 	21h
+	pop		dx ax
+	ret
+install08h endp
+
+install09h proc
+	push	ax dx
+	mov 	ah, 25h
+	mov 	dx, offset int09h
+	int 	21h
+	pop		dx ax
+	ret
+install09h endp
+
+restoreOld08h proc
+	push	ax dx ds
+	mov 	ax, 2508h
+	mov 	dx, oldBx08h
+	mov 	ds, oldEs08h
+	int 	21h
+	pop 	ds dx ax
+	ret
+restoreOld08h endp
+	
+restoreOld09h proc
+	push	ax dx ds
+	mov 	ax, 2509h
+	mov 	dx, oldBx09h
+	mov 	ds, oldEs09h
+	int 	21h
+	pop 	ds dx ax
+	ret
+restoreOld09h endp
 	
 ackReception proc
 	in		al, 61h
