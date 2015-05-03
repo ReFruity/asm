@@ -36,9 +36,9 @@ org 100h
 	; 123.47
 	freqNums 	dw 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
 	
-	melodyNotesAmount 	dw 8
-	melodyFreqs 		dw 4560, 3619, 3224, 2280, 1809, 3224, 2280, 1809
-	melodyDelays 		dw 4, 4, 4, 4, 4, 4, 4, 4
+	melodyNotesAmountX2	dw 16
+	melodyFreqs 		dw 4560, 3619, 3043, 2280, 1809, 3043, 2280, 1809
+	noteDurations 		dw 4, 4, 4, 4, 4, 4, 4, 4
 	delayCounter 		dw 0
 	noteCounter 		dw 0
 	
@@ -46,6 +46,7 @@ org 100h
 	lea 	dx, infoMsg
 	call 	printMsg
 	
+	call	saveOld08h
 	call	saveOld09h
 	call	install09h
 	
@@ -79,8 +80,11 @@ org 100h
 	cmp 	al, 81h 			; escape code
 	je 		@restoreOldAndExit
 	
-	cmp 	al, 4Ch				
-	je		@playMelody			; play melody
+	cmp 	al, 4Ch				; num 5
+	je		@playMelody
+	
+	cmp		al, 50h				; num 2
+	je 		@stopMelody
 	
 	cmp 	al, 1h
 	je		@onKeyUp			; escape stops the sound
@@ -128,11 +132,19 @@ org 100h
 	jmp 	@mainLoop
 	
 @playMelody:
+	mov		noteCounter, 0
+	call	install08h
+	jmp 	@mainLoop
 	
+@stopMelody:
+	call 	restoreOld08h
+	call	stopSound
+	jmp 	@mainLoop
 	
 @restoreOldAndExit:
-	call	stopSound
+	call 	restoreOld08h
 	call 	restoreOld09h
+	call	stopSound
 	ret
 	
 	
@@ -164,33 +176,41 @@ int09h proc
     iret
 int09h endp
 
+; TODO: correct handling of note durations 
 int08h proc
-	push	ax cx ds si
+	push	ax bx cx ds si
 	push 	cs
 	pop 	ds	
 	
 	mov 	cx, noteCounter
-	cmp		cx, melodyNotesAmount
-	jge		@i08End
+	cmp		cx, melodyNotesAmountX2
+	jl		@i08Step
+	jmp		@i08Stop
 	
-	lea 	si, melodyDelays
+@i08Step:
+	lea 	si, noteDurations
 	add		si, noteCounter
 	mov 	cx, [si]
-	cmp		cx, delayCounter
+	cmp		delayCounter, cx
 	jl		@i08Inc
 	
 	mov 	delayCounter, 0
 	lea 	si, melodyFreqs
 	add		si, noteCounter
-	mov		ax, [si]
+	mov		bx, [si]
 	call 	playSound
+	add		noteCounter, 2
 	
 @i08Inc:
 	inc		delayCounter
+	jmp 	@i08End
+@i08Stop:
+	call	stopSound
+	call	restoreOld08h
 @i08End:
 	mov 	al, 20h
 	out		20h, al
-	pop		si ds cx ax
+	pop		si ds cx bx ax
 	iret
 int08h endp
 
@@ -423,7 +443,7 @@ incTail endp
 	
 saveOld08h proc
 	push	ax es bx
-	mov 	ax, 3509h
+	mov 	ax, 3508h
 	int 	21h
 	mov 	oldEs08h, es
 	mov 	oldBx08h, bx
@@ -443,7 +463,7 @@ saveOld09h endp
 
 install08h proc
 	push	ax dx
-	mov 	ah, 25h
+	mov 	ax, 2508h
 	mov 	dx, offset int08h
 	int 	21h
 	pop		dx ax
@@ -452,7 +472,7 @@ install08h endp
 
 install09h proc
 	push	ax dx
-	mov 	ah, 25h
+	mov 	ax, 2509h
 	mov 	dx, offset int09h
 	int 	21h
 	pop		dx ax

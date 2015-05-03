@@ -14,7 +14,7 @@ entry:
 	oldSegment 		dw 0
 	oldOffset 		dw 0
 
-	delay dw 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4
+	delay dw 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4
 	chast dw 262, 440, 440, 392, 440, 349, 262, 262, 262, 440, 440, 466, 392, 523, 523, 523, 294, 294, 466, 466, 440, 392, 349, 262, 440, 440, 392, 440, 349;частоты
 
 start:
@@ -47,7 +47,7 @@ IsrTimer proc ;обработчик прерывания от таймера
     pop ds    
 
     inc m    
-    cmp index,30
+    cmp index,58
     jl TimerMet1
     mov index,0 ;обнуление счётчика
 TimerMet1:    
@@ -88,7 +88,7 @@ TimerMet2:
 
 	pop dx ds si ax
 
-iret
+	iret
 IsrTimer endp
 
 saveOld09 proc
