@@ -29,16 +29,15 @@ org 100h
 	keyStack 	db 0FFh dup(?)
 	sptr 		dw 0
 	
-	nilKey db 0
+	nilKey 		db 0
 	
-	maxNotes 	dw 37
-	scanCodes 	db 10h, 3h, 11h, 4h, 12h, 13h, 6h, 14h, 7h, 15h, 8h, 16h, 17h, 0Ah, 18h, 0Bh, 19h, 1Ah, 0Dh, 1Bh, 1Eh, 2Ch, 1Fh, 2Dh, 2Eh, 21h, 2Fh, 22h, 30h, 31h, 24h, 32h, 25h, 33h, 26h, 34h, 35h
-	; 123.47
-	freqNums 	dw 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
+	maxNotes 	dw 38
+	scanCodes 	db 0Fh, 10h, 3h, 11h, 4h, 12h, 13h, 6h, 14h, 7h, 15h, 8h, 16h, 17h, 0Ah, 18h, 0Bh, 19h, 1Ah, 0Dh, 1Bh, 1Eh, 2Ch, 1Fh, 2Dh, 2Eh, 21h, 2Fh, 22h, 30h, 31h, 24h, 32h, 25h, 33h, 26h, 34h, 35h
+	freqNums 	dw 9663, 9121, 8609, 8126, 7670, 7239, 6833, 6449, 6087, 5746, 5423, 5119, 4831, 4560, 4304, 4063, 3834, 3619, 3416, 3224, 3043, 2873, 2711, 2559, 2415, 2280, 2152, 2031, 1917, 1809, 1715, 1612, 1521, 1436, 1355, 1292, 1207, 1140
 	
-	melodyNotesAmountX2	dw 16
-	melodyFreqs 		dw 4560, 3619, 3043, 2280, 1809, 3043, 2280, 1809
-	noteDurations 		dw 4, 4, 4, 4, 4, 4, 4, 4
+	melodyNotesAmount	dw 16
+	melodyFreqs 		dw 4560, 3619, 3043, 2280, 1809, 3043, 2280, 1809, 4560, 3619, 3043, 2280, 1809, 3043, 2280, 1809
+	noteDurations 		dw 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4
 	delayCounter 		dw 0
 	noteCounter 		dw 0
 	
@@ -92,8 +91,10 @@ org 100h
 	ja		@onKeyUp
 	
 @onKeyPressed:	
-	call	pushKey
 	call 	calcFreqNum
+	cmp		bx, 0				
+	je		@next				; not a keyboard key
+	call	pushKey
 	call	playSoundOrIgnore
 	jmp 	@next
 	
@@ -133,6 +134,7 @@ org 100h
 	
 @playMelody:
 	mov		noteCounter, 0
+	mov		delayCounter, 0
 	call	install08h
 	jmp 	@mainLoop
 	
@@ -176,30 +178,46 @@ int09h proc
     iret
 int09h endp
 
-; TODO: correct handling of note durations 
 int08h proc
 	push	ax bx cx ds si
 	push 	cs
 	pop 	ds	
 	
 	mov 	cx, noteCounter
-	cmp		cx, melodyNotesAmountX2
+	cmp		cx, melodyNotesAmount
 	jl		@i08Step
 	jmp		@i08Stop
 	
 @i08Step:
+	cmp		delayCounter, 0
+	je		@i08Play
+	
 	lea 	si, noteDurations
-	add		si, noteCounter
-	mov 	cx, [si]
+	mov		cx, noteCounter
+	shl		cx, 1
+	add		si, cx
+	mov		cx, [si]
 	cmp		delayCounter, cx
 	jl		@i08Inc
 	
-	mov 	delayCounter, 0
+	mov		delayCounter, 0
+	inc 	noteCounter
+	
+	; Debug 
+	mov 	ax, noteCounter
+	call	printHex
+	call 	printSpace
+	
+	jmp 	@i08End
+
+@i08Play:
 	lea 	si, melodyFreqs
-	add		si, noteCounter
+	mov		cx, noteCounter
+	shl		cx, 1
+	add		si, cx
 	mov		bx, [si]
-	call 	playSound
-	add		noteCounter, 2
+	call 	playSoundOrStop
+	jmp		@i08Inc
 	
 @i08Inc:
 	inc		delayCounter
@@ -377,6 +395,17 @@ calcFreqNum proc
 	pop		cx ax
 	ret
 calcFreqNum endp
+
+playSoundOrStop proc
+	cmp 	bx, 0
+	je		@psosStop
+	call 	playSound
+	jmp		@psosEnd
+@psosStop:
+	call 	stopSound
+@psosEnd:
+	ret
+playSoundOrStop endp
 
 ; Arguments: bx = frequency number, ignore if bx = 0
 playSoundOrIgnore proc
