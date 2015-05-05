@@ -23,7 +23,7 @@ org 100h
 	oldBx09h dw ?
 	
 	buffer 		db 8 dup(?)
-	bufferSize 	dw 7
+	bufferMask 	dw 7
 	
 	maxKeys 	dw 0FFh
 	keyStack 	db 0FFh dup(?)
@@ -202,7 +202,7 @@ int09h proc
     push	ax bx
     mov 	ax, tail
     inc 	ax
-    and 	ax, bufferSize
+    and 	ax, bufferMask
     cmp 	ax, head
 	in      al, 60h        
     je		@iOverlow
@@ -503,7 +503,7 @@ prepareSpeaker endp
 incHead proc
 	push ax
 	inc head
-	mov ax, bufferSize
+	mov ax, bufferMask
 	and head, ax
 	pop ax
 	ret
@@ -512,7 +512,7 @@ incHead endp
 incTail proc
 	push ax
 	inc tail
-	mov ax, bufferSize
+	mov ax, bufferMask
 	and tail, ax
 	pop ax
 	ret

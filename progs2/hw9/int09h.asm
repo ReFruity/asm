@@ -11,7 +11,7 @@ org 100h
 	oldEs dw ?
 	oldBx dw ?
 	buffer db 8 dup(?)
-	bufferSize dw 7
+	bufferMask dw 7
 	
 @start:
 	lea 	dx, infoMsg
@@ -54,7 +54,7 @@ int09h proc
     push	ax bx
     mov 	ax, tail
     inc 	ax
-    and 	ax, bufferSize
+    and 	ax, bufferMask
     cmp 	ax, head
     je 		@overflow
 
@@ -82,7 +82,7 @@ int09h endp
 incHead proc
 	push ax
 	inc head
-	mov ax, bufferSize
+	mov ax, bufferMask
 	and head, ax
 	pop ax
 	ret
@@ -91,7 +91,7 @@ incHead endp
 incTail proc
 	push ax
 	inc tail
-	mov ax, bufferSize
+	mov ax, bufferMask
 	and tail, ax
 	pop ax
 	ret
